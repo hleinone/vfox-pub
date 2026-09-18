@@ -14,7 +14,7 @@ function PLUGIN:BackendInstall(ctx)
         error("package '" .. tool .. "' has no executables")
     end
     for _, launcher in ipairs(file.list(launchers)) do
-        pub.write_wrapper(ctx.install_path, launcher)
+        pub.write_wrapper(ctx.install_path, tool, launcher)
     end
     return {}
 end
