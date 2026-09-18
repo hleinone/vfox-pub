@@ -43,18 +43,20 @@ mise exec pub:melos -- melos --version
 1. `BackendListVersions` reads `https://pub.dev/api/packages/<name>`. It returns all versions
    that are not retracted.
 2. `BackendInstall` runs `dart pub global activate <name> <version>` with `PUB_CACHE` set to
-   the mise install directory. Each version has its own pub cache. The plugin then adds
-   `export PUB_CACHE=...` to each launcher script that pub created. Without this line, a
-   launcher fails after a Dart SDK upgrade, because pub rebuilds the snapshot from the default
-   cache, where the package is not active.
+   `<install directory>/pub-cache`. Each version has its own pub cache. The plugin then writes
+   a wrapper for each executable into `<install directory>/bin`. The wrapper sets `PUB_CACHE`
+   and calls the launcher that pub created. Without that setting, a launcher fails after a
+   Dart SDK upgrade, because pub rebuilds the snapshot from the default cache, where the
+   package is not active. pub rewrites its own launchers when it rebuilds a snapshot, so the
+   setting must live outside them.
 3. `BackendExecEnv` adds `<install directory>/bin` to PATH.
 
 Each installed version downloads its own copy of the package dependencies.
 
 ## Platforms
 
-Linux, macOS and Windows. On Windows, pub writes `.bat` launchers and the plugin pins
-`PUB_CACHE` in them with `set`. CI runs the end-to-end test on all three platforms.
+Linux, macOS and Windows. On Windows, pub writes `.bat` launchers and the plugin writes `.bat`
+wrappers. CI runs the end-to-end test on all three platforms.
 
 ## Limitations
 

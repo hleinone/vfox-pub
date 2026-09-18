@@ -1,3 +1,4 @@
+local cmd = require("cmd")
 local file = require("file")
 
 local M = {}
@@ -16,31 +17,44 @@ function M.validate_version(version)
     return version
 end
 
--- pub writes a POSIX sh launcher on Linux and macOS and a .bat launcher on Windows.
-local function pin_line(first_line, pub_cache)
-    if first_line:match("^#!") then
-        return 'export PUB_CACHE="' .. pub_cache .. '"'
-    end
-    if first_line:lower():match("^@echo off%s*$") then
-        return 'set "PUB_CACHE=' .. pub_cache .. '"'
-    end
-    return nil
+function M.pub_cache(install_path)
+    return file.join_path(install_path, "pub-cache")
 end
 
-function M.pin_pub_cache(launcher, pub_cache)
-    local content = file.read(launcher)
-    local first, rest = content:match("^([^\n]*)\n(.*)$")
-    if not first then
-        return
+-- pub rewrites its own launchers whenever it rebuilds a snapshot, so the PUB_CACHE
+-- setting lives in a wrapper under <install_path>/bin that pub never touches.
+-- pub writes .bat launchers on Windows and sh launchers elsewhere.
+local function wrapper(name, pub_cache)
+    if name:match("%.bat$") then
+        return table.concat({
+            "@echo off",
+            'set "PUB_CACHE=' .. pub_cache .. '"',
+            'call "%PUB_CACHE%\\bin\\' .. name .. '" %*',
+            "exit /b %errorlevel%",
+            "",
+        }, "\r\n")
     end
-    local eol = first:match("\r$") and "\r\n" or "\n"
-    local line = pin_line(first:gsub("\r$", ""), pub_cache)
-    if not line then
-        return
+    return table.concat({
+        "#!/usr/bin/env sh",
+        'export PUB_CACHE="' .. pub_cache .. '"',
+        'exec "$PUB_CACHE/bin/' .. name .. '" "$@"',
+        "",
+    }, "\n")
+end
+
+function M.write_wrapper(install_path, launcher)
+    local name = launcher:match("[^/\\]+$")
+    local bin = file.join_path(install_path, "bin")
+    if not file.exists(bin) then
+        cmd.exec('mkdir "' .. bin .. '"')
     end
-    local out = assert(io.open(launcher, "wb"))
-    out:write(first, "\n", line, eol, rest)
+    local path = file.join_path(bin, name)
+    local out = assert(io.open(path, "wb"))
+    out:write(wrapper(name, M.pub_cache(install_path)))
     out:close()
+    if not name:match("%.bat$") then
+        cmd.exec('chmod +x "' .. path .. '"')
+    end
 end
 
 return M

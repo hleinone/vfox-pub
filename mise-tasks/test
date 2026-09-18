@@ -21,6 +21,10 @@ posix_path() {
     fi
 }
 
+pinned() {
+    grep -Eq '^(export PUB_CACHE=|set "PUB_CACHE=)' "$1"
+}
+
 mise plugin link --force pub "$PWD"
 
 versions=$(mise ls-remote "pub:$tool")
@@ -37,17 +41,21 @@ mise install --force "pub:$tool@$version"
 mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "protoc-gen-dart did not run"
 
 install_dir=$(posix_path "$(mise where "pub:$tool@$version")")
-launcher="$install_dir/bin/protoc-gen-dart"
-if [ -f "$launcher.bat" ]; then
-    launcher="$launcher.bat"
+wrapper="$install_dir/bin/protoc-gen-dart"
+if [ -f "$wrapper.bat" ]; then
+    wrapper="$wrapper.bat"
 fi
-grep -Eq '^(export PUB_CACHE=|set "PUB_CACHE=)' "$launcher" || fail "launcher does not pin PUB_CACHE: $launcher"
+pinned "$wrapper" || fail "wrapper does not pin PUB_CACHE: $wrapper"
 
-# A missing or stale snapshot sends the launcher down the `dart pub global run` path.
-# The pinned PUB_CACHE must make pub rebuild the snapshot inside this install directory.
-snapshot=$(echo "$install_dir"/global_packages/$tool/bin/protoc_plugin.dart-*.snapshot)
-rm "$snapshot"
-mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "launcher did not recover from a missing snapshot"
-test -f "$snapshot" || fail "launcher did not rebuild the snapshot in $install_dir"
+# A missing or stale snapshot sends pub's launcher down the `dart pub global run` path.
+# pub then rebuilds the snapshot and rewrites its launcher. The PUB_CACHE setting must
+# survive that, so the recovery has to work twice in a row.
+snapshot=$(echo "$install_dir"/pub-cache/global_packages/$tool/bin/protoc_plugin.dart-*.snapshot)
+for attempt in 1 2; do
+    rm "$snapshot"
+    mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "recovery $attempt: protoc-gen-dart did not run"
+    test -f "$snapshot" || fail "recovery $attempt: snapshot was not rebuilt in $install_dir"
+done
+pinned "$wrapper" || fail "wrapper lost its PUB_CACHE setting after recovery"
 
 echo "ok"
