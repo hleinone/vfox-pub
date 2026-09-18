@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Link this directory as the pub plugin and install protoc_plugin end to end"
+set -euo pipefail
+
+cd "${MISE_PROJECT_ROOT:-$(dirname "$0")/..}"
+
+tool=protoc_plugin
+version=25.1.0
+
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
+mise plugin link --force pub "$PWD"
+
+versions=$(mise ls-remote "pub:$tool")
+grep -qx 22.3.0 <<<"$versions" || fail "ls-remote did not list 22.3.0"
+if grep -qx 21.0.1 <<<"$versions"; then
+    fail "ls-remote listed the retracted version 21.0.1"
+fi
+
+if mise ls-remote pub:this_package_does_not_exist_xyz >/dev/null 2>&1; then
+    fail "ls-remote succeeded for an unknown package"
+fi
+
+mise install --force "pub:$tool@$version"
+mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "protoc-gen-dart did not run"
+
+install_dir=$(mise where "pub:$tool@$version")
+grep -q '^export PUB_CACHE=' "$install_dir/bin/protoc-gen-dart" || fail "launcher does not pin PUB_CACHE"
+
+# A missing or stale snapshot sends the launcher down the `dart pub global run` path.
+# The pinned PUB_CACHE must make pub rebuild the snapshot inside this install directory.
+snapshot=$(echo "$install_dir"/global_packages/$tool/bin/protoc_plugin.dart-*.snapshot)
+rm "$snapshot"
+mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "launcher did not recover from a missing snapshot"
+test -f "$snapshot" || fail "launcher did not rebuild the snapshot in $install_dir"
+
+echo "ok"

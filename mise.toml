@@ -1,0 +1,20 @@
+[tools]
+actionlint = "latest"
+lua-language-server = "latest"
+stylua = "latest"
+
+[tasks.format]
+description = "Format Lua sources"
+run = "stylua ."
+
+[tasks.lint]
+description = "Check Lua formatting, Lua diagnostics and GitHub workflows"
+run = [
+    "stylua --check .",
+    "lua-language-server --check . --checklevel=Warning",
+    "actionlint .github/workflows/*.yml",
+]
+
+[tasks.ci]
+description = "Run lint and test"
+depends = ["lint", "test"]
