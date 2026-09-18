@@ -25,14 +25,9 @@ local function sh_quote(s)
     return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
--- Inside `set "..."` cmd still expands `%`.
+-- Inside `set "..."` cmd still expands `%`; `!` is literal because delayed expansion is off.
 local function bat_literal(s)
     return (s:gsub("%%", "%%%%"))
-end
-
--- With delayed expansion on, cmd also expands `!var!` and treats `^` as an escape.
-local function bat_delayed_literal(s)
-    return (bat_literal(s):gsub("%^", "^^"):gsub("!", "^!"))
 end
 
 -- pub writes the bin/ script that an executable maps to into every launcher header.
@@ -53,19 +48,19 @@ end
 -- its launchers whenever it rebuilds a snapshot, and it embeds the cache path in them
 -- without quoting. pub finds and rebuilds the snapshot on its own.
 --
--- The .bat variant probes delayed expansion with `"!" == ""`, because a user can enable
--- it by default and the value then needs `^!` and `^^` escapes.
+-- In the .bat variant, setlocal keeps PUB_CACHE out of the calling cmd session and
+-- fixes the expansion mode. dart may be a .cmd shim, and a batch file run without CALL
+-- would end this file and its setlocal scope, so CALL is required. CALL expands percent
+-- signs in the arguments a second time; pub's own launcher has the same behaviour.
 local function wrapper(tool, script, pub_cache, bat)
     local target = tool .. ":" .. script
     if bat then
         return table.concat({
             "@echo off",
-            'if "!" == "" (set "PUB_CACHE='
-                .. bat_delayed_literal(pub_cache)
-                .. '") else (set "PUB_CACHE='
-                .. bat_literal(pub_cache)
-                .. '")',
-            "dart pub global run " .. target .. " %*",
+            "setlocal DisableDelayedExpansion",
+            'set "PUB_CACHE=' .. bat_literal(pub_cache) .. '"',
+            "call dart pub global run " .. target .. " %*",
+            "exit /b %errorlevel%",
             "",
         }, "\r\n")
     end

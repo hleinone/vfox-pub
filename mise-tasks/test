@@ -58,6 +58,18 @@ for attempt in 1 2; do
 done
 pinned "$wrapper" || fail "wrapper lost its PUB_CACHE setting after recovery"
 
+if [ "$wrapper" != "${wrapper%.bat}" ]; then
+    # A batch file shares the environment of the cmd session that runs it. The wrapper
+    # must leave PUB_CACHE as the caller had it.
+    driver="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pub-cache-leak.bat"
+    printf '@echo off\r\nset "PUB_CACHE=caller"\r\ncall protoc-gen-dart.bat <nul >nul || exit /b 1\r\necho %%PUB_CACHE%%\r\n' \
+        >"$(posix_path "$driver")"
+    after=$(cd "$install_dir/bin" && cmd //c "$(cygpath -w "$driver")") || fail "wrapper failed inside the leak check"
+    after=${after%$'\r'}
+    [ "$after" = "caller" ] || fail "wrapper changed PUB_CACHE of the calling cmd session to: $after"
+    rm -f "$(posix_path "$driver")"
+fi
+
 # Wrappers must survive paths with shell and cmd metacharacters, including quotes, which
 # break pub's own launchers. Windows file names cannot contain double quotes.
 hostile_name="mise data %USERNAME% !x! \$y 100% it's"
