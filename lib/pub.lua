@@ -16,14 +16,30 @@ function M.validate_version(version)
     return version
 end
 
+-- pub writes a POSIX sh launcher on Linux and macOS and a .bat launcher on Windows.
+local function pin_line(first_line, pub_cache)
+    if first_line:match("^#!") then
+        return 'export PUB_CACHE="' .. pub_cache .. '"'
+    end
+    if first_line:lower():match("^@echo off%s*$") then
+        return 'set "PUB_CACHE=' .. pub_cache .. '"'
+    end
+    return nil
+end
+
 function M.pin_pub_cache(launcher, pub_cache)
     local content = file.read(launcher)
-    local shebang, rest = content:match("^(#![^\n]*)\n(.*)$")
-    if not shebang then
+    local first, rest = content:match("^([^\n]*)\n(.*)$")
+    if not first then
         return
     end
-    local out = assert(io.open(launcher, "w"))
-    out:write(shebang, "\n", 'export PUB_CACHE="', pub_cache, '"\n', rest)
+    local eol = first:match("\r$") and "\r\n" or "\n"
+    local line = pin_line(first:gsub("\r$", ""), pub_cache)
+    if not line then
+        return
+    end
+    local out = assert(io.open(launcher, "wb"))
+    out:write(first, "\n", line, eol, rest)
     out:close()
 end
 

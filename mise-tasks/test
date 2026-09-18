@@ -12,6 +12,15 @@ fail() {
     exit 1
 }
 
+# mise prints Windows paths; bash globs and rm need the POSIX form under Git Bash.
+posix_path() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -u "$1"
+    else
+        echo "$1"
+    fi
+}
+
 mise plugin link --force pub "$PWD"
 
 versions=$(mise ls-remote "pub:$tool")
@@ -27,8 +36,12 @@ fi
 mise install --force "pub:$tool@$version"
 mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "protoc-gen-dart did not run"
 
-install_dir=$(mise where "pub:$tool@$version")
-grep -q '^export PUB_CACHE=' "$install_dir/bin/protoc-gen-dart" || fail "launcher does not pin PUB_CACHE"
+install_dir=$(posix_path "$(mise where "pub:$tool@$version")")
+launcher="$install_dir/bin/protoc-gen-dart"
+if [ -f "$launcher.bat" ]; then
+    launcher="$launcher.bat"
+fi
+grep -Eq '^(export PUB_CACHE=|set "PUB_CACHE=)' "$launcher" || fail "launcher does not pin PUB_CACHE: $launcher"
 
 # A missing or stale snapshot sends the launcher down the `dart pub global run` path.
 # The pinned PUB_CACHE must make pub rebuild the snapshot inside this install directory.

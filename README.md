@@ -51,10 +51,14 @@ mise exec pub:melos -- melos --version
 
 Each installed version downloads its own copy of the package dependencies.
 
+## Platforms
+
+Linux, macOS and Windows. On Windows, pub writes `.bat` launchers and the plugin pins
+`PUB_CACHE` in them with `set`. CI runs the end-to-end test on all three platforms.
+
 ## Limitations
 
 - Only pub.dev is supported. Private pub servers are not supported yet.
-- Windows is not supported yet.
 
 ## Develop
 
@@ -67,6 +71,8 @@ mise run ci        # lint and test
 ```
 
 `mise run test` replaces a plugin named `pub` on your machine with a link to this directory.
+On Windows, run the test from Git Bash with `bash mise-tasks/test`, because mise runs file
+tasks through `cmd` there.
 
 ## License
 
