@@ -21,6 +21,15 @@ function M.pub_cache(install_path)
     return file.join_path(install_path, "pub-cache")
 end
 
+local function sh_quote(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+-- Inside `set "..."` only `%` is still expanded by cmd; `!` is covered by DisableDelayedExpansion.
+local function bat_literal(s)
+    return (s:gsub("%%", "%%%%"))
+end
+
 -- pub rewrites its own launchers whenever it rebuilds a snapshot, so the PUB_CACHE
 -- setting lives in a wrapper under <install_path>/bin that pub never touches.
 -- pub writes .bat launchers on Windows and sh launchers elsewhere.
@@ -28,16 +37,17 @@ local function wrapper(name, pub_cache)
     if name:match("%.bat$") then
         return table.concat({
             "@echo off",
-            'set "PUB_CACHE=' .. pub_cache .. '"',
-            'call "%PUB_CACHE%\\bin\\' .. name .. '" %*',
+            "setlocal DisableDelayedExpansion",
+            'set "PUB_CACHE=' .. bat_literal(pub_cache) .. '"',
+            'call "%PUB_CACHE%\\bin\\' .. bat_literal(name) .. '" %*',
             "exit /b %errorlevel%",
             "",
         }, "\r\n")
     end
     return table.concat({
         "#!/usr/bin/env sh",
-        'export PUB_CACHE="' .. pub_cache .. '"',
-        'exec "$PUB_CACHE/bin/' .. name .. '" "$@"',
+        "export PUB_CACHE=" .. sh_quote(pub_cache),
+        'exec "$PUB_CACHE/bin/"' .. sh_quote(name) .. ' "$@"',
         "",
     }, "\n")
 end
@@ -45,15 +55,16 @@ end
 function M.write_wrapper(install_path, launcher)
     local name = launcher:match("[^/\\]+$")
     local bin = file.join_path(install_path, "bin")
+    -- Relative names with cwd keep the install path out of shell command text.
     if not file.exists(bin) then
-        cmd.exec('mkdir "' .. bin .. '"')
+        cmd.exec("mkdir bin", { cwd = install_path })
     end
     local path = file.join_path(bin, name)
     local out = assert(io.open(path, "wb"))
     out:write(wrapper(name, M.pub_cache(install_path)))
     out:close()
     if not name:match("%.bat$") then
-        cmd.exec('chmod +x "' .. path .. '"')
+        cmd.exec("chmod +x " .. sh_quote(name), { cwd = bin })
     end
 end
 
