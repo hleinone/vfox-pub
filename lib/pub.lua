@@ -33,14 +33,21 @@ end
 -- pub rewrites its own launchers whenever it rebuilds a snapshot, so the PUB_CACHE
 -- setting lives in a wrapper under <install_path>/bin that pub never touches.
 -- pub writes .bat launchers on Windows and sh launchers elsewhere.
+--
+-- The .bat wrapper hands over to pub's launcher without CALL, because CALL expands
+-- percent signs a second time, in the path and in the arguments. Delayed expansion is
+-- disabled while the lines that carry the path are parsed, so `!` stays literal even
+-- when a user enables it by default. The `endlocal & set` line copies the value out of
+-- the setlocal scope, which ends when this file hands over.
 local function wrapper(name, pub_cache)
     if name:match("%.bat$") then
         return table.concat({
             "@echo off",
             "setlocal DisableDelayedExpansion",
             'set "PUB_CACHE=' .. bat_literal(pub_cache) .. '"',
-            'call "%PUB_CACHE%\\bin\\' .. bat_literal(name) .. '" %*',
-            "exit /b %errorlevel%",
+            'endlocal & set "PUB_CACHE=%PUB_CACHE%"',
+            "setlocal DisableDelayedExpansion",
+            '"%PUB_CACHE%\\bin\\' .. bat_literal(name) .. '" %*',
             "",
         }, "\r\n")
     end

@@ -58,4 +58,33 @@ for attempt in 1 2; do
 done
 pinned "$wrapper" || fail "wrapper lost its PUB_CACHE setting after recovery"
 
+# Wrappers must survive paths with shell and cmd metacharacters. pub's own launcher does not
+# quote its snapshot test, so such an install always takes the `dart pub global run` route,
+# which only works when the wrapper hands over the exact PUB_CACHE.
+hostile_data_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/mise data %USERNAME% !x! \$y 100%"
+hostile_posix=$(posix_path "$hostile_data_dir")
+rm -rf "$hostile_posix"
+mkdir -p "$hostile_posix"
+# A separate config directory keeps the user's global tools out of dependency resolution,
+# which would otherwise fail in the fresh data directory where none of them is installed.
+# The real dart goes first on PATH because a mise shim cannot resolve in that directory.
+dart_bin=$(dirname "$(posix_path "$(mise which dart 2>/dev/null || command -v dart)")")
+hostile_mise() {
+    PATH="$dart_bin:$PATH" MISE_DATA_DIR="$hostile_data_dir" MISE_CONFIG_DIR="$hostile_data_dir" mise "$@"
+}
+hostile_mise plugin link --force pub "$PWD"
+hostile_mise install --force "pub:$tool@$version"
+hostile_install=$(posix_path "$(hostile_mise where "pub:$tool@$version")")
+if [ -f "$hostile_install/bin/protoc-gen-dart.bat" ]; then
+    # cmd expands %VAR% on its own command line too, so start it inside the directory.
+    (cd "$hostile_install/bin" && cmd //c protoc-gen-dart.bat </dev/null >/dev/null) ||
+        fail "bat wrapper failed in a path with metacharacters"
+    (cd "$hostile_install/bin" && cmd //v:on //c protoc-gen-dart.bat </dev/null >/dev/null) ||
+        fail "bat wrapper failed with delayed expansion enabled"
+else
+    "$hostile_install/bin/protoc-gen-dart" </dev/null >/dev/null ||
+        fail "sh wrapper failed in a path with metacharacters"
+fi
+rm -rf "$hostile_posix"
+
 echo "ok"
