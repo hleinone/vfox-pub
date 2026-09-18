@@ -72,13 +72,16 @@ fi
 
 # Wrappers must survive paths with shell and cmd metacharacters, including quotes, which
 # break pub's own launchers, and non-ASCII characters, which cmd reads in a legacy code
-# page. Windows file names cannot contain double quotes.
-hostile_name="mise data %USERNAME% !x! \$y 100% it's Jörg"
+# page. Windows file names cannot contain double quotes. Only the installs directory gets
+# the non-ASCII name: on Windows, mise itself cannot load a Lua plugin from a directory
+# with non-ASCII characters.
+hostile_name="mise data %USERNAME% !x! \$y 100% it's"
 case "$(uname -s)" in
 MINGW* | MSYS* | CYGWIN*) ;;
 *) hostile_name="$hostile_name \"dq\"" ;;
 esac
 hostile_data_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/$hostile_name"
+hostile_installs_dir="$hostile_data_dir/installs Jörg"
 hostile_posix=$(posix_path "$hostile_data_dir")
 rm -rf "$hostile_posix"
 mkdir -p "$hostile_posix"
@@ -87,7 +90,8 @@ mkdir -p "$hostile_posix"
 # The real dart goes first on PATH because a mise shim cannot resolve in that directory.
 dart_bin=$(dirname "$(posix_path "$(mise which dart 2>/dev/null || command -v dart)")")
 hostile_mise() {
-    PATH="$dart_bin:$PATH" MISE_DATA_DIR="$hostile_data_dir" MISE_CONFIG_DIR="$hostile_data_dir" mise "$@"
+    PATH="$dart_bin:$PATH" MISE_DATA_DIR="$hostile_data_dir" MISE_CONFIG_DIR="$hostile_data_dir" \
+        MISE_INSTALLS_DIR="$hostile_installs_dir" mise "$@"
 }
 hostile_mise plugin link --force pub "$PWD"
 hostile_mise install --force "pub:$tool@$version"

@@ -62,6 +62,9 @@ wrappers. CI runs the end-to-end test on all three platforms.
 ## Limitations
 
 - Only pub.dev is supported. Private pub servers are not supported yet.
+- On Windows, mise itself does not load Lua plugins from a directory whose path has
+  non-ASCII characters. Set `MISE_DATA_DIR` to an ASCII path in that case. Install paths
+  with non-ASCII characters work.
 
 ## Develop
 
