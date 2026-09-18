@@ -42,12 +42,14 @@ mise exec pub:melos -- melos --version
 
 1. `BackendListVersions` reads `https://pub.dev/api/packages/<name>`. It returns all versions
    that are not retracted.
-2. `BackendInstall` runs `dart pub global activate <name> <version>` with `PUB_CACHE` set to
-   `<install directory>/pub-cache`. Each version has its own pub cache. The plugin then writes
-   a wrapper for each executable into `<install directory>/bin`. The wrapper sets `PUB_CACHE`
+2. `BackendInstall` reads the `executables` of that version from the same pub.dev response.
+   It runs `dart pub global activate --no-executables <name> <version>` with `PUB_CACHE` set
+   to `<install directory>/pub-cache`. Each version has its own pub cache. Then it writes a
+   wrapper for each executable into `<install directory>/bin`. The wrapper sets `PUB_CACHE`
    and runs `dart pub global run <name>:<script>`. pub finds the compiled snapshot in that
-   cache and rebuilds it after a Dart SDK upgrade. The launchers that pub itself writes are
-   not used, because pub rewrites them after a rebuild and does not quote the paths in them.
+   cache and rebuilds it after a Dart SDK upgrade. The launchers that pub itself can write
+   are not used, because pub rewrites them after a rebuild, does not quote the paths in
+   them, and writes them in the system code page.
 3. `BackendExecEnv` adds `<install directory>/bin` to PATH.
 
 Each installed version downloads its own copy of the package dependencies.

@@ -71,8 +71,9 @@ if [ "$wrapper" != "${wrapper%.bat}" ]; then
 fi
 
 # Wrappers must survive paths with shell and cmd metacharacters, including quotes, which
-# break pub's own launchers. Windows file names cannot contain double quotes.
-hostile_name="mise data %USERNAME% !x! \$y 100% it's"
+# break pub's own launchers, and non-ASCII characters, which cmd reads in a legacy code
+# page. Windows file names cannot contain double quotes.
+hostile_name="mise data %USERNAME% !x! \$y 100% it's Jörg"
 case "$(uname -s)" in
 MINGW* | MSYS* | CYGWIN*) ;;
 *) hostile_name="$hostile_name \"dq\"" ;;
