@@ -22,7 +22,7 @@ posix_path() {
 }
 
 pinned() {
-    grep -Eq '^(export PUB_CACHE=|set "PUB_CACHE=)' "$1"
+    grep -Eq '^export PUB_CACHE=|set "PUB_CACHE=' "$1"
 }
 
 mise plugin link --force pub "$PWD"
