@@ -25,9 +25,14 @@ local function sh_quote(s)
     return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
--- Inside `set "..."` only `%` is still expanded by cmd; `!` is covered by DisableDelayedExpansion.
+-- Inside `set "..."` cmd still expands `%`.
 local function bat_literal(s)
     return (s:gsub("%%", "%%%%"))
+end
+
+-- With delayed expansion on, cmd also expands `!var!` and treats `^` as an escape.
+local function bat_delayed_literal(s)
+    return (bat_literal(s):gsub("%^", "^^"):gsub("!", "^!"))
 end
 
 -- pub rewrites its own launchers whenever it rebuilds a snapshot, so the PUB_CACHE
@@ -35,18 +40,19 @@ end
 -- pub writes .bat launchers on Windows and sh launchers elsewhere.
 --
 -- The .bat wrapper hands over to pub's launcher without CALL, because CALL expands
--- percent signs a second time, in the path and in the arguments. Delayed expansion is
--- disabled while the lines that carry the path are parsed, so `!` stays literal even
--- when a user enables it by default. The `endlocal & set` line copies the value out of
--- the setlocal scope, which ends when this file hands over.
+-- percent signs a second time, in the path and in the arguments. A user can enable
+-- delayed expansion by default, and `endlocal` would restore that state before a
+-- `set` on the same line runs, so the wrapper probes the mode with `"!" == ""` and
+-- uses the escapes that mode needs.
 local function wrapper(name, pub_cache)
     if name:match("%.bat$") then
         return table.concat({
             "@echo off",
-            "setlocal DisableDelayedExpansion",
+            'if not "!" == "" goto plain',
+            'set "PUB_CACHE=' .. bat_delayed_literal(pub_cache) .. '"',
+            '"!PUB_CACHE!\\bin\\' .. bat_delayed_literal(name) .. '" %*',
+            ":plain",
             'set "PUB_CACHE=' .. bat_literal(pub_cache) .. '"',
-            'endlocal & set "PUB_CACHE=%PUB_CACHE%"',
-            "setlocal DisableDelayedExpansion",
             '"%PUB_CACHE%\\bin\\' .. bat_literal(name) .. '" %*',
             "",
         }, "\r\n")
