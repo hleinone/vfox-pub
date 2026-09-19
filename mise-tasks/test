@@ -75,6 +75,25 @@ same_output "$scratch/stale.bin" "recovery from a stale snapshot"
 run_tool "$scratch/after.bin" || fail "run after recovery failed"
 same_output "$scratch/after.bin" "run after recovery"
 
+# Package URIs must resolve at run time. A probe snapshot stands in for the tool and
+# prints what the VM sees; the wrapper must pass the installation's package config.
+cat >"$scratch/probe.dart" <<'EOF'
+import 'dart:isolate';
+
+void main() async {
+  print(await Isolate.packageConfig);
+  print(await Isolate.resolvePackageUri(Uri.parse('package:protobuf/protobuf.dart')));
+}
+EOF
+dart compile kernel -o "$scratch/probe.dill" "$scratch/probe.dart" >/dev/null
+cp "$scratch/probe.dill" "$snapshot"
+mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >"$scratch/probe.out" || fail "probe snapshot did not run"
+grep -q 'package_config.json$' "$scratch/probe.out" || fail "Isolate.packageConfig is not the installation's package config: $(cat "$scratch/probe.out")"
+grep -q 'protobuf.dart$' "$scratch/probe.out" || fail "Isolate.resolvePackageUri did not resolve a package URI: $(cat "$scratch/probe.out")"
+rm "$snapshot"
+run_tool "$scratch/restored.bin" || fail "run after the probe failed"
+same_output "$scratch/restored.bin" "run after the probe"
+
 if [ "$wrapper" != "${wrapper%.bat}" ]; then
     # A batch file shares the environment of the cmd session that runs it. The wrapper
     # must leave the caller's variables as they were.

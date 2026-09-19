@@ -75,8 +75,8 @@ local function sh_quote(s)
     return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
--- `dart <file>` percent-decodes the file argument before it checks whether the file
--- exists, so a `%` in the path has to be sent as `%25`.
+-- dart percent-decodes the script argument and the --packages value, so a `%` in a path
+-- has to be sent as `%25`.
 local function dart_arg(path)
     return (path:gsub("%%", "%%25"))
 end
@@ -87,19 +87,23 @@ end
 -- writes to stderr only. With VFOX_PUB_COMPILE set, the wrapper compiles and exits, which
 -- the install hook uses so that the first run is fast and compile errors surface early.
 --
+-- Every run passes --packages: the snapshot does not sit below a .dart_tool directory,
+-- and without the flag Isolate.resolvePackageUri returns null for package assets.
+--
 -- The sh wrapper rebuilds when the VM rejects the snapshot with exit code 253, which it
 -- does before it reads stdin.
 local function sh_wrapper(install_path, tool, version, script)
     local pkg = "pub-cache/global_packages/" .. tool .. "/.dart_tool/package_config.json"
     local src = "pub-cache/hosted/pub.dev/" .. tool .. "-" .. version .. "/bin/" .. script .. ".dart"
-    local snapshot_arg = dart_arg(install_path) .. "/snapshots/" .. script .. ".dill"
+    local encoded = dart_arg(install_path)
     return table.concat({
         "#!/usr/bin/env sh",
         "install=" .. sh_quote(install_path),
         'snapshot="$install/snapshots/' .. script .. '.dill"',
-        "snapshot_arg=" .. sh_quote(snapshot_arg),
+        "snapshot_arg=" .. sh_quote(encoded .. "/snapshots/" .. script .. ".dill"),
+        "packages_arg=" .. sh_quote(encoded .. "/" .. pkg),
         'if [ -z "${VFOX_PUB_COMPILE:-}" ] && [ -f "$snapshot" ]; then',
-        '    dart "$snapshot_arg" "$@"',
+        '    dart --packages="$packages_arg" "$snapshot_arg" "$@"',
         "    code=$?",
         '    [ "$code" -ne 253 ] && exit "$code"',
         "fi",
@@ -111,7 +115,7 @@ local function sh_wrapper(install_path, tool, version, script)
             .. '" 1>&2 || exit $?',
         'mv -f "$snapshot.$$" "$snapshot" || exit $?',
         '[ -n "${VFOX_PUB_COMPILE:-}" ] && exit 0',
-        'exec dart "$snapshot_arg" "$@"',
+        'exec dart --packages="$packages_arg" "$snapshot_arg" "$@"',
         "",
     }, "\n")
 end
@@ -124,8 +128,8 @@ end
 -- The compile runs through PowerShell, which passes the paths in environment variables
 -- without a second cmd parse. setlocal keeps the variables out of the calling session.
 --
--- Replacing `%` needs delayed expansion. The `endlocal & set` line carries the result
--- back into the scope where delayed expansion is off, which keeps `!` in the path intact.
+-- Replacing `%` needs delayed expansion. The `endlocal & set` line carries the results
+-- back into the scope where delayed expansion is off, which keeps `!` in the paths intact.
 local function bat_wrapper(tool, version, script)
     local pkg = "pub-cache\\global_packages\\" .. tool .. "\\.dart_tool\\package_config.json"
     local src = "pub-cache\\hosted\\pub.dev\\" .. tool .. "-" .. version .. "\\bin\\" .. script .. ".dart"
@@ -134,9 +138,11 @@ local function bat_wrapper(tool, version, script)
         "setlocal DisableDelayedExpansion",
         'for %%I in ("%~dp0..") do set "VFOX_PUB_INSTALL=%%~fI"',
         'set "VFOX_PUB_SNAPSHOT=%VFOX_PUB_INSTALL%\\snapshots\\' .. script .. '.dill"',
+        'set "VFOX_PUB_PACKAGES=%VFOX_PUB_INSTALL%\\' .. pkg .. '"',
         "setlocal EnableDelayedExpansion",
         'set "VFOX_PUB_ARG=!VFOX_PUB_SNAPSHOT:%%=%%25!"',
-        'endlocal & set "VFOX_PUB_ARG=%VFOX_PUB_ARG%"',
+        'set "VFOX_PUB_PACKAGES_ARG=!VFOX_PUB_PACKAGES:%%=%%25!"',
+        'endlocal & set "VFOX_PUB_ARG=%VFOX_PUB_ARG%" & set "VFOX_PUB_PACKAGES_ARG=%VFOX_PUB_PACKAGES_ARG%"',
         'for /f "tokens=1-4" %%A in (\'dart --version 2^>^&1\') do set "VFOX_PUB_SDK=%%A %%B %%C %%D"',
         'set "VFOX_PUB_BUILT="',
         'if exist "%VFOX_PUB_SNAPSHOT%.sdk" set /p VFOX_PUB_BUILT=<"%VFOX_PUB_SNAPSHOT%.sdk"',
@@ -145,7 +151,6 @@ local function bat_wrapper(tool, version, script)
         'if "%VFOX_PUB_BUILT%" == "%VFOX_PUB_SDK%" goto run',
         ":compile",
         'if not exist "%VFOX_PUB_INSTALL%\\snapshots" mkdir "%VFOX_PUB_INSTALL%\\snapshots"',
-        'set "VFOX_PUB_PACKAGES=%VFOX_PUB_INSTALL%\\' .. pkg .. '"',
         'set "VFOX_PUB_SCRIPT=%VFOX_PUB_INSTALL%\\' .. src .. '"',
         'set "VFOX_PUB_TMP=%VFOX_PUB_SNAPSHOT%.%RANDOM%"',
         'powershell -NoProfile -NonInteractive -Command "& dart compile kernel --packages $env:VFOX_PUB_PACKAGES -o $env:VFOX_PUB_TMP $env:VFOX_PUB_SCRIPT; exit $LASTEXITCODE" 1>&2',
@@ -154,7 +159,7 @@ local function bat_wrapper(tool, version, script)
         '>"%VFOX_PUB_SNAPSHOT%.sdk" echo %VFOX_PUB_SDK%',
         "if defined VFOX_PUB_COMPILE exit /b 0",
         ":run",
-        'dart "%VFOX_PUB_ARG%" %*',
+        'dart --packages="%VFOX_PUB_PACKAGES_ARG%" "%VFOX_PUB_ARG%" %*',
         "",
     }, "\r\n")
 end

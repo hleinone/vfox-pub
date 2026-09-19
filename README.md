@@ -47,8 +47,9 @@ mise exec pub:melos -- melos --version
    to `<install directory>/pub-cache`. Each version has its own pub cache. Then it writes a
    wrapper for each executable into `<install directory>/bin` and compiles the executable to
    a kernel snapshot in `<install directory>/snapshots` with `dart compile kernel`.
-3. The wrapper runs `dart <snapshot>`. After a Dart SDK upgrade the snapshot is stale, and
-   the wrapper compiles it again before it runs the tool. Compiler output goes to stderr, so
+3. The wrapper runs `dart --packages=<package config> <snapshot>`, so package URIs resolve
+   at run time. After a Dart SDK upgrade the snapshot is stale, and the wrapper compiles it
+   again before it runs the tool. Compiler output goes to stderr, so
    the tool's stdout stays clean. This matters for protoc plugins, which speak protobuf on
    stdout. pub's own launchers and `dart pub global run` are not used at run time: pub
    prints status text to stdout while it rebuilds a snapshot, rewrites its launchers, does
