@@ -45,12 +45,15 @@ mise exec pub:melos -- melos --version
 2. `BackendInstall` reads the `executables` of that version from the same pub.dev response.
    It runs `dart pub global activate --no-executables <name> <version>` with `PUB_CACHE` set
    to `<install directory>/pub-cache`. Each version has its own pub cache. Then it writes a
-   wrapper for each executable into `<install directory>/bin`. The wrapper sets `PUB_CACHE`
-   and runs `dart pub global run <name>:<script>`. pub finds the compiled snapshot in that
-   cache and rebuilds it after a Dart SDK upgrade. The launchers that pub itself can write
-   are not used, because pub rewrites them after a rebuild, does not quote the paths in
-   them, and writes them in the system code page.
-3. `BackendExecEnv` adds `<install directory>/bin` to PATH.
+   wrapper for each executable into `<install directory>/bin` and compiles the executable to
+   a kernel snapshot in `<install directory>/snapshots` with `dart compile kernel`.
+3. The wrapper runs `dart <snapshot>`. After a Dart SDK upgrade the snapshot is stale, and
+   the wrapper compiles it again before it runs the tool. Compiler output goes to stderr, so
+   the tool's stdout stays clean. This matters for protoc plugins, which speak protobuf on
+   stdout. pub's own launchers and `dart pub global run` are not used at run time: pub
+   prints status text to stdout while it rebuilds a snapshot, rewrites its launchers, does
+   not quote paths in them, and writes them in the system code page.
+4. `BackendExecEnv` adds `<install directory>/bin` to PATH.
 
 Each installed version downloads its own copy of the package dependencies.
 

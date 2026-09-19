@@ -11,7 +11,7 @@ function PLUGIN:BackendInstall(ctx)
         { env = { PUB_CACHE = pub.pub_cache(ctx.install_path) } }
     )
     for exe, script in pairs(executables) do
-        pub.write_wrapper(ctx.install_path, tool, exe, script)
+        pub.install_executable(ctx.install_path, tool, version, exe, script)
     end
     return {}
 end

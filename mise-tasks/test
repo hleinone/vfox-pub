@@ -6,6 +6,8 @@ cd "${MISE_PROJECT_ROOT:-$(dirname "$0")/..}"
 
 tool=protoc_plugin
 version=25.1.0
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
 
 fail() {
     echo "FAIL: $*" >&2
@@ -21,8 +23,14 @@ posix_path() {
     fi
 }
 
-pinned() {
-    grep -Eq '^export PUB_CACHE=|set "PUB_CACHE=' "$1"
+# protoc-gen-dart answers an empty request with a fixed CodeGeneratorResponse on stdout.
+# Every run must produce exactly those bytes, also while the wrapper rebuilds its snapshot.
+run_tool() {
+    mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >"$1"
+}
+
+same_output() {
+    cmp -s "$scratch/base.bin" "$1" || fail "$2: stdout differs from a normal run"
 }
 
 mise plugin link --force pub "$PWD"
@@ -38,29 +46,38 @@ if mise ls-remote pub:this_package_does_not_exist_xyz >/dev/null 2>&1; then
 fi
 
 mise install --force "pub:$tool@$version"
-mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "protoc-gen-dart did not run"
+run_tool "$scratch/base.bin" || fail "protoc-gen-dart did not run"
+[ -s "$scratch/base.bin" ] || fail "protoc-gen-dart wrote nothing to stdout"
 
 install_dir=$(posix_path "$(mise where "pub:$tool@$version")")
 wrapper="$install_dir/bin/protoc-gen-dart"
 if [ -f "$wrapper.bat" ]; then
     wrapper="$wrapper.bat"
 fi
-pinned "$wrapper" || fail "wrapper does not pin PUB_CACHE: $wrapper"
+snapshot="$install_dir/snapshots/protoc_plugin.dill"
+grep -q 'snapshots' "$wrapper" || fail "wrapper does not use the plugin's snapshot: $wrapper"
+test -f "$snapshot" || fail "install did not compile the snapshot $snapshot"
 
-# A missing or stale snapshot sends pub's launcher down the `dart pub global run` path.
-# pub then rebuilds the snapshot and rewrites its launcher. The PUB_CACHE setting must
-# survive that, so the recovery has to work twice in a row.
-snapshot=$(echo "$install_dir"/pub-cache/global_packages/$tool/bin/protoc_plugin.dart-*.snapshot)
-for attempt in 1 2; do
-    rm "$snapshot"
-    mise exec "pub:$tool@$version" -- protoc-gen-dart </dev/null >/dev/null || fail "recovery $attempt: protoc-gen-dart did not run"
-    test -f "$snapshot" || fail "recovery $attempt: snapshot was not rebuilt in $install_dir"
-done
-pinned "$wrapper" || fail "wrapper lost its PUB_CACHE setting after recovery"
+# Recovery 1: the snapshot is missing.
+rm "$snapshot"
+run_tool "$scratch/missing.bin" || fail "recovery from a missing snapshot failed"
+same_output "$scratch/missing.bin" "recovery from a missing snapshot"
+test -f "$snapshot" || fail "the snapshot was not rebuilt"
+
+# Recovery 2: the snapshot is stale. A kernel file with a foreign format version makes the
+# VM exit with 253, and a changed SDK stamp makes the Windows wrapper recompile.
+printf '\0\0\0\1' | dd of="$snapshot" bs=1 seek=4 conv=notrunc 2>/dev/null
+if [ -f "$snapshot.sdk" ]; then
+    echo stale >"$snapshot.sdk"
+fi
+run_tool "$scratch/stale.bin" || fail "recovery from a stale snapshot failed"
+same_output "$scratch/stale.bin" "recovery from a stale snapshot"
+run_tool "$scratch/after.bin" || fail "run after recovery failed"
+same_output "$scratch/after.bin" "run after recovery"
 
 if [ "$wrapper" != "${wrapper%.bat}" ]; then
     # A batch file shares the environment of the cmd session that runs it. The wrapper
-    # must leave PUB_CACHE as the caller had it.
+    # must leave the caller's variables as they were.
     driver="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pub-cache-leak.bat"
     printf '@echo off\r\nset "PUB_CACHE=caller"\r\ncall protoc-gen-dart.bat <nul >nul || exit /b 1\r\necho %%PUB_CACHE%%\r\n' \
         >"$(posix_path "$driver")"
@@ -98,13 +115,16 @@ hostile_mise install --force "pub:$tool@$version"
 hostile_install=$(posix_path "$(hostile_mise where "pub:$tool@$version")")
 if [ -f "$hostile_install/bin/protoc-gen-dart.bat" ]; then
     # cmd expands %VAR% on its own command line too, so start it inside the directory.
-    (cd "$hostile_install/bin" && cmd //c protoc-gen-dart.bat </dev/null >/dev/null) ||
+    (cd "$hostile_install/bin" && cmd //c protoc-gen-dart.bat </dev/null >"$scratch/hostile.bin") ||
         fail "bat wrapper failed in a path with metacharacters"
-    (cd "$hostile_install/bin" && cmd //v:on //c protoc-gen-dart.bat </dev/null >/dev/null) ||
+    same_output "$scratch/hostile.bin" "bat wrapper in a path with metacharacters"
+    (cd "$hostile_install/bin" && cmd //v:on //c protoc-gen-dart.bat </dev/null >"$scratch/hostile-v.bin") ||
         fail "bat wrapper failed with delayed expansion enabled"
+    same_output "$scratch/hostile-v.bin" "bat wrapper with delayed expansion enabled"
 else
-    "$hostile_install/bin/protoc-gen-dart" </dev/null >/dev/null ||
+    "$hostile_install/bin/protoc-gen-dart" </dev/null >"$scratch/hostile.bin" ||
         fail "sh wrapper failed in a path with metacharacters"
+    same_output "$scratch/hostile.bin" "sh wrapper in a path with metacharacters"
 fi
 rm -rf "$hostile_posix"
 
